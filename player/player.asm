@@ -423,7 +423,8 @@ parse_adpcm:                               ; 'ADP4' header (see adpcm_encode.py)
 	str	r2, hdr_nblk
 	ldr	r2, [r0, #24]
 	str	r2, hdr_kbps
-	ldr	r2, [r0, #28]              ; bits per code (0: 4, older files)
+	ldr	r2, [r0, #28]              ; bits per code (0: 4, older files),
+	bic	r2, r2, #0x100             ;  + 0x100 if blocks carry a predictor mode
 	cmp	r2, #0
 	moveq	r2, #4
 	cmp	r2, #2

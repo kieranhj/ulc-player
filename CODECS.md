@@ -5,7 +5,7 @@ This report covers three questions:
 - What could a codec designed for ARM2-class decoding look like?
 - What can the VIDC's log format do for us?
 
-Proposals 1 and 2 are implemented and measured. Proposals 2b and 3 are prototyped in Python and measured. Proposals 4–6 are designs with estimates.
+Proposals 1, 2 and 2b are implemented in the player and measured. Proposal 3 is prototyped in Python and measured. Proposals 4–6 are designs with estimates.
 
 ## The VIDC sets the ceiling
 
@@ -31,9 +31,9 @@ The figures below are waveform SNR against the 20833 Hz source, after the player
 | **ADPCM 4-bit, trellis encoder** | 4.0 | 83 | **32.5** | **32.8** | 22 c/s, 6% (stereo 12%) |
 | **ADPCM 3-bit, trellis** | 3.0 | 62 | **28.4** | **28.3** | 21.5 c/s, 6% (stereo 11%) |
 | **ADPCM 2-bit, trellis** | 2.0 | 42 | **22.9** | – | 21.3 c/s, 6% (stereo 11%) |
-| ADPCM 4-bit, trellis + predictor modes (2b, prototype) | 4.0 | 83 | 33.9 | 34.1 | estimated 23–24 c/s |
-| ADPCM 3-bit, trellis + predictor modes (2b, prototype) | 3.0 | 62 | 30.6 | 30.8 | estimated 23–24 c/s |
-| ADPCM 2-bit, trellis + predictor modes (2b, prototype) | 2.0 | 42 | 25.9 | – | estimated 23–24 c/s |
+| **ADPCM 4-bit, trellis + predictor modes (2b)** | 4.0 | 83 | **33.9** | **34.1** | 23.9 c/s, 6% (stereo 13%) |
+| **ADPCM 3-bit, trellis + predictor modes (2b)** | 3.0 | 62 | **30.6** | **30.8** | 23.4 c/s, 6% (stereo 13%) |
+| **ADPCM 2-bit, trellis + predictor modes (2b)** | 2.0 | 42 | **25.9** | – | 23.1 c/s, 6% (stereo 12%) |
 | ULC 32k | 1.5 | 32 | 17.4 | – | about 229 c/s, 60% |
 | ULC 64k | 3.1 | 64 | 19.1 | 17.6 (64k stereo, 1.5 bps) | about 229 c/s, 60% |
 | ULC 128k | 6.1 | 128 | 19.5 | 19.1 (128k stereo, 3.1 bps) | 60%; stereo doesn't fit an A3000, 80% of an A3020 |
@@ -90,7 +90,7 @@ That is a perceptual codec doing its job, so waveform SNR understates how it sou
   - **Checks:** the player's ring output is byte-exact against the Python decoder for all six variants, and for old 4-bit files (`player/check_ring.py`).
 - **Result:** 3-bit trellis ADPCM at 62 kbps (28.4 dB) is about 2 dB below the old 4-bit encoder at 83 kbps (30.6 dB), using three-quarters of the bits and the same CPU.
 
-### 2b. Per-block predictor modes for ADPCM (prototyped; found while testing proposal 3)
+### 2b. Per-block predictor modes for ADPCM (done; found while testing proposal 3)
 
 IMA predicts each sample as the previous one. Instead, each block now picks one of three predictors:
 - `y1` (IMA);
@@ -117,8 +117,17 @@ The choice goes in the block header's spare byte. Each block starts with `y2 = y
 **ARM cost:**
 - **Loops:** one unrolled loop per mode, so the mode is chosen once per block.
 - **Registers:** with the y1/y2 roles alternating between registers, `2·y1 − y2` is one `RSB` with `LSL #1`, and the half-slope mode is two instructions.
-- **Cost:** about +1–2 cycles per sample on top of 22 (+5–9%). Mono needs one more register, which it gets by storing a word per 4 samples instead of `STMIA` of two.
-- **Not built yet:** the player rejects `0x100` files with a format error rather than misdecoding them.
+- **Mono register:** mono needs one more register, which it gets by storing a word per 4 samples instead of `STMIA` of two.
+- **Generated:** `player/gen_adpcm.py` writes all 18 loops (3 widths × 3 modes × mono/stereo), and the player now accepts the `0x100` flag.
+- **Measured on an A3000 (Particle, `profile_player.py`):**
+
+  | | Plain | With modes |
+  |---|---:|---:|
+  | Mono, per sample | 22.0 | 23.9 (4-bit), 23.4 (3-bit), 23.1 (2-bit) |
+  | Stereo, per pair | 47.9 | 52.0 (4-bit), 50.4 (3-bit) |
+
+  That is +5–9%; most blocks pick linear extrapolation, the one-instruction mode.
+- **Checks:** the ring is byte-exact against the Python decoder for all six Particle mode files (`music/particle-{mono,stereo}-adpcm{4,3,2}m.adp`). That includes windows chosen to be dense in modes 0 and 1, and old files still pass.
 
 ### 3. Subband ADPCM, with no multiplies (prototyped: not worth building)
 
@@ -187,7 +196,7 @@ In VIDC bytes, multiplying the amplitude becomes adding to the chord field: addi
 ## Next steps
 
 1. **Listen to the grid** and decide: ULC at 32/48k mono or 64/96k stereo, against trellis ADPCM at 4, 3 or 2 bits, with or without predictor modes (`*-modes` clips). Also listen to the subband noise-substitution clips (`*-30-sb137-4+noise`).
-2. **Build proposal 2b in the player** (generated loops per mode, about +1–2 c/s) if the mode clips earn it.
+2. **Make `--modes` the encoder's default** if the mode clips earn it. The player decodes both kinds of file.
 3. **Proposal 4**, if stereo ULC has to fit an A3000.
 4. **Report the `memmove` fix** to ulc-codec.
 

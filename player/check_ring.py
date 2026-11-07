@@ -101,6 +101,13 @@ def main():
         got = ring_b[o:o + bb]
         e = expect(b)
         n = int((got != e).sum())
+        if n and b == first and (exp_blocks is None or nb < exp_blocks):
+            # The oldest slot is where the decoder is writing block nb right now
+            # (ring_wr only moves when it finishes): accept bytes from either.
+            e2 = expect(nb)
+            if np.all((got == e) | (got == e2)):
+                print(f"  block {b}: partly overwritten by block {nb} (in progress), both exact")
+                n = 0
         checked += 1
         if n:
             bad += 1

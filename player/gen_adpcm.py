@@ -8,6 +8,12 @@ and the next index's row offset (a row is 2^bits words), so one LDR does the
 step lookup, the adds, the sign and the index update. The loops are unrolled
 over one group of codes that fills whole words (4-bit: 8 codes in 1 word;
 2-bit: 16 in 1; 3-bit: 32 in 3, two of them straddling a word boundary).
+
+Predictor modes (the block header's top byte, adpcm_encode.py --modes): the
+new value is built on base = y1 + (mode * (y1 - y2)) >> 1. Each mode has its
+own loop, chosen once per block; modes 1 and 2 keep y1 and y2 in two registers
+whose roles swap every sample (groups are even), so 2 y1 - y2 is one RSB and
+y1 + (y1 - y2)/2 is a SUB and an ADD.
 """
 import os
 import struct
@@ -28,6 +34,9 @@ HEAD = r"""; -------------------------------------------------------------------
 ; indexes a 4 KB VIDC log table directly (12 bits).
 ;   r0 codes  r4 predictor  r5 &table  r6 current row  r7 dest
 ;   r8 count  r10 source  r11 &vidc12 centre  r12 0x7FFF
+; Header byte 3 is the predictor mode (0 = IMA; 1, 2: base = y1 + mode *
+; (y1 - y2) / 2), one loop per mode. In modes 1 and 2 the second predictor
+; register (lr mono, r9 stereo) holds y2, and the two swap roles each sample.
 
 adpcm_decode_block:
 	stmfd	sp!, {r4-r12, lr}
@@ -67,18 +76,30 @@ p_ima3:	.long	ima3
 p_ima2:	.long	ima2
 """
 
-SAMPLE = """	add	r4, r4, r3, asr #13
-	mov	r2, r4, asr #15            ; clamp to 16 bits
-	teq	r2, r4, asr #31
-	eorne	r4, r12, r4, asr #31
-	mov	r3, r3, lsl #19
-	add	r6, r5, r3, lsr #19
-	ldrb	r1, [r11, r4, asr #4]
-"""
+def sample(mode, k, yreg):
+    """One sample. Mode 0: r4 is the predictor. Modes 1, 2: y1 in P, y2 in Y;
+    the new value goes into Y, so the roles swap for the next sample."""
+    P, Y = ("r4", yreg) if k % 2 == 0 else (yreg, "r4")
+    if mode == 0:
+        P = Y = "r4"
+        pre = []
+    elif mode == 1:
+        pre = [f"\tsub\tr2, {P}, {Y}", f"\tadd\t{Y}, {P}, r2, asr #1"]
+    else:
+        pre = [f"\trsb\t{Y}, {Y}, {P}, lsl #1"]
+    return "\n".join(pre + [
+        f"\tadd\t{Y}, {Y}, r3, asr #13",
+        f"\tmov\tr2, {Y}, asr #15            ; clamp to 16 bits",
+        f"\tteq\tr2, {Y}, asr #31",
+        f"\teorne\t{Y}, r12, {Y}, asr #31",
+        "\tmov\tr3, r3, lsl #19",
+        "\tadd\tr6, r5, r3, lsr #19",
+        f"\tldrb\tr1, [r11, {Y}, asr #4]"])
 
 
 def header(bits):
     return f"""	ldr	r1, [r10], #4
+	mov	r2, r1, lsr #24            ; predictor mode
 	mov	r4, r1, lsl #16
 	mov	r4, r4, asr #16            ; predictor
 	mov	r1, r1, lsr #16
@@ -88,7 +109,7 @@ def header(bits):
 """
 
 
-def group(bits, stereo):
+def group(bits, stereo, mode=0):
     """One unrolled group of codes."""
     out, word = [], -1
     mask = (1 << bits) - 1
@@ -110,9 +131,13 @@ def group(bits, stereo):
             out.append(f"\tand\tr2, r0, #0x{(1 << (bits - lo)) - 1:X}")
             out.append(f"\torr\tr1, r1, r2, lsl #{lo}")
             out.append("\tldr\tr3, [r6, r1, lsl #2]")
-        out.append(SAMPLE.rstrip("\n"))
+        out.append(sample(mode, k, "r9" if stereo else "lr"))
         if stereo:
             out.append("\tstrb\tr1, [r7], #2")
+        elif mode:                              # lr holds y2: one accumulator
+            out.append("\tmov\tr9, r1" if k % 4 == 0 else f"\torr\tr9, r9, r1, lsl #{8 * (k % 4)}")
+            if k % 4 == 3:
+                out.append("\tstr\tr9, [r7], #4")
         else:
             acc = "r9" if k % 8 < 4 else "lr"
             out.append(f"\tmov\t{acc}, r1" if k % 4 == 0 else f"\torr\t{acc}, {acc}, r1, lsl #{8 * (k % 4)}")
@@ -123,11 +148,22 @@ def group(bits, stereo):
 
 def loops(bits):
     g = GROUP[bits]
-    return (f"ad{bits}_mono:\n" + header(bits) + f"ad{bits}_m_loop:\n" + group(bits, False)
-            + f"\tsubs\tr8, r8, #{g}\n\tbgt\tad{bits}_m_loop\n\tb\tad_done\n"
+
+    def body(pre, stereo, after):
+        """Dispatch on the mode in r2, then a loop per mode, each ending at after."""
+        out = f"\tcmp\tr2, #1\n\tbhi\t{pre}2\n\tbeq\t{pre}1\n"
+        for m in (0, 1, 2):
+            out += f"{pre}{m}:\n"
+            if m:
+                out += f"\tmov\t{'r9' if stereo else 'lr'}, r4             ; y2 = y1 at a block start\n"
+            out += f"{pre}{m}_loop:\n" + group(bits, stereo, m)
+            out += f"\tsubs\tr8, r8, #{g}\n\tbgt\t{pre}{m}_loop\n\tb\t{after}\n"
+        return out
+
+    return (f"ad{bits}_mono:\n" + header(bits) + body(f"ad{bits}_m", False, "ad_done")
             + f"ad{bits}_st:\n\tmov\tlr, #2\nad{bits}_st_chan:\n" + header(bits)
-            + f"ad{bits}_st_loop:\n" + group(bits, True)
-            + f"\tsubs\tr8, r8, #{g}\n\tbgt\tad{bits}_st_loop\n"
+            + body(f"ad{bits}_s", True, f"ad{bits}_st_next")
+            + f"ad{bits}_st_next:\n"
             + "\tldr\tr0, [sp]\n\tsub\tr7, r7, r0, lsl #1\n\tadd\tr7, r7, #1          ; channel 2: odd bytes\n"
             + f"\tsubs\tlr, lr, #1\n\tbgt\tad{bits}_st_chan\n\tb\tad_done\n")
 
