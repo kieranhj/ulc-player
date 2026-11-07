@@ -68,10 +68,18 @@ does, and screenshots each step. It's published as `arc-ulcplayer-wip,ddc` on bi
 ## Making .adp files
 
 ```
-python player/adpcm_encode.py in.wav out.adp      # 16-bit WAV at the target rate, mono or stereo
+python player/adpcm_encode.py in.wav out.adp [--bits 4|3|2]   # 16-bit WAV at the target rate, mono or stereo
 ```
 
-ADPCM costs 6% CPU for mono (14% stereo) at 20.8 kHz on an A3000, against 60% for mono ULC.
+- **Encoder:** by default, a trellis (beam 16) that minimises the error as heard through the VIDC. It needs zig to build `tools/adpcm_trellis.c`.
+- **Original encoder:** `--beam 0` gives the original greedy 4-bit encoder.
+- **Bit widths:**
+  - 4-bit is 83 kbps mono at 20.8 kHz.
+  - 3-bit is 62 kbps.
+  - 2-bit is 42 kbps.
+- **Decode cost:** all three cost the same, about 22 cycles per sample: 6% CPU on an A3000 for mono, 11–12% for stereo, against 60% for mono ULC.
+
+See `../CODECS.md` for quality measurements, and `listen_grid.py` for listening clips.
 
 ## Making .ulc files
 

@@ -21,6 +21,7 @@ Try it in the browser, or download the `!ULCPlayer` Spark archive: [arc-ulcplaye
 - **Write-ups:**
   - [FEASIBILITY.md](FEASIBILITY.md): the original study.
   - [PERF.md](PERF.md): the measured performance analysis and the optimisations made.
+  - [CODECS.md](CODECS.md): ULC against ADPCM on the Archimedes, the trellis and 3/2-bit ADPCM, and proposals for codecs suited to ARM2.
 
 ## Requirements
 

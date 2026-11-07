@@ -423,6 +423,14 @@ parse_adpcm:                               ; 'ADP4' header (see adpcm_encode.py)
 	str	r2, hdr_nblk
 	ldr	r2, [r0, #24]
 	str	r2, hdr_kbps
+	ldr	r2, [r0, #28]              ; bits per code (0: 4, older files)
+	cmp	r2, #0
+	moveq	r2, #4
+	cmp	r2, #2
+	blo	err_format
+	cmp	r2, #4
+	bhi	err_format
+	str	r2, adp_bits
 	ldr	r2, [r0, #8]
 	cmp	r2, #1
 	cmpne	r2, #2
@@ -993,12 +1001,12 @@ restore_escape:
 ulc_magic:	.long	0x32434C55        ; 'ULC2'
 adp_magic:	.long	0x34504441        ; 'ADP4'
 fmt_adpcm:	.long	0
+adp_bits:	.long	4
 adp_next:	.long	0
 one_million:	.long	1000000
 p_file:		.long	file_data
 p_outbuf:	.long	outbuf
 p_ring:		.long	ring
-p_ima_table:	.long	ima_table
 p_vidc11:	.long	vidc11 + 1024
 p_vidc12:	.long	vidc12 + 2048
 p_lin11:	.long	lin11_8 + 1024
@@ -1074,7 +1082,7 @@ s_presskey:	.asciz	"Tap or press a key"
 .align 4
 
 s_title:	.asciz	"ULC Player  -  Acorn Archimedes"
-s_title_adpcm:	.asciz	"IMA ADPCM 4-bit - Acorn Archimedes"
+s_title_adpcm:	.asciz	"IMA ADPCM - Acorn Archimedes"
 s_usage:	.asciz	"Usage: player <file.ulc>"
 s_notfound:	.asciz	"File not found"
 s_format:	.asciz	"Not a ULC2 or ADP4 file this player supports (mono/stereo, N 64..2048)"
@@ -1100,107 +1108,7 @@ argbuf:		.space	256
 oldy:		.space	320
 
 .align 4
-; ----------------------------------------------------------------------------
-; IMA ADPCM block decoder: one block, all channels, VIDC log bytes to r0 (the
-; ring; stereo interleaved L,R). Per channel: int16 predictor, uint8 index,
-; pad, then nybbles (low first).
-;
-; Table driven: ima_table has a word per (index, nybble) holding the signed
-; difference << 13 and the next index's row offset (row = 16 words), so one
-; LDR does the step lookup, the three conditional adds, the sign and the index
-; update. The 16-bit predictor indexes a 4 KB VIDC log table directly
-; (12 bits), with no separate 8-bit pass.
-;   r0 nybbles  r4 predictor  r5 &ima_table  r6 current row  r7 dest
-;   r8 count  r10 source  r11 &vidc12 centre  r12 0x7FFF
-
-.macro ADP_SAMPLE Mask, Sh, Amt
-	and	r1, r0, #\Mask
-	ldr	r3, [r6, r1, \Sh #\Amt]    ; diff<<13 | next row offset
-	add	r4, r4, r3, asr #13
-	mov	r2, r4, asr #15            ; clamp to 16 bits
-	teq	r2, r4, asr #31
-	eorne	r4, r12, r4, asr #31
-	mov	r3, r3, lsl #19
-	add	r6, r5, r3, lsr #19
-	ldrb	r1, [r11, r4, asr #4]
-.endm
-
-.macro ADP_HEADER
-	ldr	r1, [r10], #4
-	mov	r4, r1, lsl #16
-	mov	r4, r4, asr #16            ; predictor
-	mov	r1, r1, lsr #16
-	and	r1, r1, #0xFF              ; step index
-	add	r6, r5, r1, lsl #6
-	ldr	r8, hdr_bs
-.endm
-
-adpcm_decode_block:
-	stmfd	sp!, {r4-r12, lr}
-	mov	r7, r0
-	ldr	r10, adp_next
-	ldr	r5, p_ima_table
-	ldr	r11, p_vidc12
-	mov	r12, #0x7F00
-	orr	r12, r12, #0xFF
-	ldr	r0, hdr_nch
-	cmp	r0, #2
-	beq	ad_stereo
-	ADP_HEADER
-ad_mono_loop:
-	ldr	r0, [r10], #4
-	ADP_SAMPLE 0x0000000F, lsl, 2
-	mov	r9, r1
-	ADP_SAMPLE 0x000000F0, lsr, 2
-	orr	r9, r9, r1, lsl #8
-	ADP_SAMPLE 0x00000F00, lsr, 6
-	orr	r9, r9, r1, lsl #16
-	ADP_SAMPLE 0x0000F000, lsr, 10
-	orr	r9, r9, r1, lsl #24
-	ADP_SAMPLE 0x000F0000, lsr, 14
-	mov	lr, r1
-	ADP_SAMPLE 0x00F00000, lsr, 18
-	orr	lr, lr, r1, lsl #8
-	ADP_SAMPLE 0x0F000000, lsr, 22
-	orr	lr, lr, r1, lsl #16
-	ADP_SAMPLE 0xF0000000, lsr, 26
-	orr	lr, lr, r1, lsl #24
-	stmia	r7!, {r9, lr}
-	subs	r8, r8, #8
-	bgt	ad_mono_loop
-	b	ad_done
-ad_stereo:
-	mov	lr, #2
-ad_st_chan:
-	ADP_HEADER
-ad_st_loop:
-	ldr	r0, [r10], #4
-	ADP_SAMPLE 0x0000000F, lsl, 2
-	strb	r1, [r7], #2
-	ADP_SAMPLE 0x000000F0, lsr, 2
-	strb	r1, [r7], #2
-	ADP_SAMPLE 0x00000F00, lsr, 6
-	strb	r1, [r7], #2
-	ADP_SAMPLE 0x0000F000, lsr, 10
-	strb	r1, [r7], #2
-	ADP_SAMPLE 0x000F0000, lsr, 14
-	strb	r1, [r7], #2
-	ADP_SAMPLE 0x00F00000, lsr, 18
-	strb	r1, [r7], #2
-	ADP_SAMPLE 0x0F000000, lsr, 22
-	strb	r1, [r7], #2
-	ADP_SAMPLE 0xF0000000, lsr, 26
-	strb	r1, [r7], #2
-	subs	r8, r8, #8
-	bgt	ad_st_loop
-	ldr	r0, hdr_bs
-	sub	r7, r7, r0, lsl #1
-	add	r7, r7, #1                 ; channel 2: odd bytes
-	subs	lr, lr, #1
-	bgt	ad_st_chan
-ad_done:
-	str	r10, adp_next
-	ldmfd	sp!, {r4-r12, pc}
+.include "build/adpcm_dec.inc"          ; ADPCM decoder, from gen_adpcm.py
 
 .include "decoder.asm"
 .include "fourier.asm"
@@ -1216,8 +1124,12 @@ vidc12:
 	.incbin	"build/vidc12.bin"         ; 4 KB: 12-bit linear (from the centre) -> VIDC log
 lin11_8:
 	.incbin	"build/lin11_8.bin"        ; 2 KB: 11-bit -> 8-bit linear (stereo, before M/S)
-ima_table:
-	.incbin	"build/ima_table.bin"      ; 89 x 16 words, see adpcm_decode_block
+ima4:
+	.incbin	"build/ima4.bin"           ; ADPCM step tables (gen_adpcm.py)
+ima3:
+	.incbin	"build/ima3.bin"
+ima2:
+	.incbin	"build/ima2.bin"
 
 .align 4
 image_end:

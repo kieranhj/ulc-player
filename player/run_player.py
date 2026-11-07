@@ -27,10 +27,11 @@ def build():
     os.makedirs(BUILD, exist_ok=True)
     for name, data in (("vidc_table.bin", vidc_lin8_to_log()), ("vidc11.bin", vidc_lin_to_log(11)),
                        ("vidc12.bin", vidc_lin_to_log(12)), ("lin11_8.bin", lin11_to_lin8()),
-                       ("ima_table.bin", ima_table()), ("scope_table.bin", vidc_to_scope())):
+                       ("scope_table.bin", vidc_to_scope())):
         with open(os.path.join(BUILD, name), "wb") as f:
             f.write(data)
     __import__("ulc_tools").write_fourier_tables(BUILD)
+    __import__("gen_adpcm").write(BUILD)
     out = os.path.join(BUILD, "player,ff8")
     subprocess.run([rb.VASM, "-m2", "-opt-adr", "-Fbin", "-quiet", "-I", SPIKE,
                     "-L", os.path.join(BUILD, "player.lst"), "-o", out, "player.asm"],

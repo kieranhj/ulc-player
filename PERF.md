@@ -35,9 +35,12 @@ Per stage, A3000, c/s:
 DCT-IV alone (`spike/run_bench.py`, MODE 13), c/s at N=512: ARM2 199.5 → 149.9 (−25%), ARM3 193.3 → 158.2 (−18%), with accuracy against a float DCT-IV unchanged at every N from 64 to 2048.
 
 **Quality.**
-- The ULC output is now 11-bit into the VIDC log table rather than truncated to 8 bits. Against ulc-codec's C decoder that is 18.9 → 29.7 dB on Particle (the rest is mostly noise-fill, which is random in both decoders).
+- The ULC output is now 11-bit into the VIDC log table rather than truncated to 8 bits. Against ulc-codec's C decoder that is 22.2 → 38.8 dB on Particle.
+  - **Corrected figures:** the comparisons in this section were first made against a C decoder build with a stream-buffer bug (overlapping `memcpy`; see CODECS.md). The figures given are against the corrected build.
+  - Particle originally read 18.9 → 29.7 dB; demoC read 38.4 → 39.0 dB and is now 39.1 dB.
+  - The relative comparisons between steps were unaffected.
 - The transform changes keep the 11-bit output within 1–2 LSB of the original port:
-  - Particle N=512: 29.7 dB against C, unchanged.
+  - Particle N=512: unchanged against C (38.8 dB, corrected decoder).
   - demoC N=2048: 38.4 → 39.0 dB.
   - demoB N=512: 36.5 → 35.8 dB.
 - ADPCM output is a 12-bit VIDC lookup of the IMA predictor, byte-exact against the Python decoder (`player/check_ring.py`).
