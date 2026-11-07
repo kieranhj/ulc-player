@@ -9,9 +9,10 @@ File format "ADP4" (little-endian), 32-byte header:
   [16] samples per channel per block (power of two, 64..2048)
   [20] offset of the first block (32)
   [24] nominal kbps
-  [28] bits per code: 4, 3 or 2 (0 = 4, files from before the variants)
+  [28] bits per code: 4, 3 or 2 (0 = 4, files from before the variants),
+       plus 0x100 if blocks carry a predictor mode
 Each block, for each channel in turn:
-  int16 predictor, uint8 step index, uint8 0, then samples*bits/8 bytes of
+  int16 predictor, uint8 step index, uint8 mode (0 without 0x100), then samples*bits/8 bytes of
   codes as a little-endian bit stream (code k at bit k*bits; for 4 bits that
   is the low nybble first). The header predictor is the state *before* the
   block's first code, so every block decodes on its own.
@@ -22,6 +23,12 @@ Decoding a code c of B bits (half = 1 << (B-1), m = c & (half-1)):
   idx  = clamp(idx + INDEX[B][m], 0, 88)
 For B = 4 this is standard IMA ADPCM.
 
+Predictor modes (--modes, experimental; the player doesn't decode them yet):
+the new value is built on base = y1 + (mode * (y1 - y2)) >> 1 instead of y1,
+where y1, y2 are the last two outputs (both = the header predictor at the
+start of a block). Mode 0 is IMA, 1 half-slope, 2 linear extrapolation. The
+encoder picks the best per block: +1.4 / +2.2 / +3.0 dB at 4 / 3 / 2 bits.
+
 Encoders: --beam 0 is the original greedy IMA quantiser (pure Python);
 --beam K >= 1 is a search keeping the K best paths per sample
 (tools/adpcm_trellis.c, built with zig cc), minimising the error of the
@@ -29,7 +36,7 @@ predictor (--cost lin) or of what the player outputs through the VIDC log
 table (--cost vidc).
 
 Usage:  python player/adpcm_encode.py in.wav out.adp [--block 1024]
-            [--bits 4] [--beam 16] [--cost vidc]
+            [--bits 4] [--beam 16] [--cost vidc] [--modes]
 """
 import argparse
 import os
@@ -131,65 +138,70 @@ def trellis_tool():
     return exe
 
 
-def trellis_channel(x, block, bits, beam, cost):
+def trellis_channel(x, block, bits, beam, cost, modes=False):
     """-> list of (pred, idx, codes) per block."""
     exe = trellis_tool()
     with tempfile.TemporaryDirectory() as d:
         fin, fout, ftab = (os.path.join(d, n) for n in ("in.raw", "out.bin", "tab.bin"))
         x.astype("<i2").tofile(fin)
         output_table().tofile(ftab)
+        env = dict(os.environ, ADPCM_COEFS="0,2,4" if modes else "0")
         subprocess.run([exe, fin, fout, str(bits), str(beam), str(block),
-                        "1" if cost == "vidc" else "0", ftab], check=True)
+                        "1" if cost == "vidc" else "0", ftab], check=True, env=env)
         raw = open(fout, "rb").read()
     out, step = [], 4 + block
     for p in range(0, len(raw), step):
-        pred, idx, _ = struct.unpack_from("<hBB", raw, p)
-        out.append((pred, idx, list(raw[p + 4:p + step])))
+        pred, idx, mode = struct.unpack_from("<hBB", raw, p)
+        out.append((pred, idx, list(raw[p + 4:p + step]), mode))
     return out
 
 
-def encode(pcm, rate, block=1024, bits=4, beam=0, cost="lin"):
+def encode(pcm, rate, block=1024, bits=4, beam=0, cost="lin", modes=False):
     """pcm: (nch, n) int16-range ints. Returns the .adp file bytes."""
     nch, n = pcm.shape
     nblk = (n + block - 1) // block
     x = np.zeros((nch, nblk * block), dtype=np.int64)
     x[:, :n] = pcm
     if beam:
-        chans = [trellis_channel(x[c], block, bits, beam, cost) for c in range(nch)]
+        chans = [trellis_channel(x[c], block, bits, beam, cost, modes) for c in range(nch)]
     else:
-        assert bits == 4, "the greedy encoder is 4-bit only; use --beam"
+        assert bits == 4 and not modes, "the greedy encoder is plain 4-bit IMA; use --beam"
         chans = []
         for c in range(nch):
             pred, idx, blocks = 0, 0, []
             for b in range(nblk):
                 codes, p2, i2 = greedy_block(x[c, b * block:(b + 1) * block], pred, idx)
-                blocks.append((pred, idx, codes))
+                blocks.append((pred, idx, codes, 0))
                 pred, idx = p2, i2
             chans.append(blocks)
     body = bytearray()
     for b in range(nblk):
         for c in range(nch):
-            pred, idx, codes = chans[c][b]
-            body += struct.pack("<hBB", pred, idx, 0) + pack_codes(codes, bits)
+            pred, idx, codes, mode = chans[c][b]
+            body += struct.pack("<hBB", pred, idx, mode) + pack_codes(codes, bits)
     kbps = round(rate * bits * nch / 1000)
-    hdr = struct.pack("<4sIIIIIII", b"ADP4", rate, nch, nblk, block, 32, kbps, bits)
+    hdr = struct.pack("<4sIIIIIII", b"ADP4", rate, nch, nblk, block, 32, kbps,
+                      bits | (0x100 if modes else 0))
     return hdr + bytes(body)
 
 
 def decode(data):
     """Reference decoder -> ((nch, n) int16-range array, rate)."""
     _, rate, nch, nblk, block, offs, _, bits = struct.unpack_from("<4sIIIIIII", data)
-    bits = bits or 4
+    bits = (bits & 0xFF) or 4
     diff, nxt = tables(bits)
     out = np.zeros((nch, nblk * block), dtype=np.int64)
     p = offs
     nbytes = block * bits // 8
     for b in range(nblk):
         for c in range(nch):
-            pred, idx, _ = struct.unpack_from("<hBB", data, p)
+            pred, idx, mode = struct.unpack_from("<hBB", data, p)
             p += 4
+            prev = pred
             for k, code in enumerate(unpack_codes(data[p:p + nbytes], block, bits)):
-                pred = max(-32768, min(32767, pred + int(diff[idx, code])))
+                base = pred + ((mode * (pred - prev)) >> 1)
+                prev = pred
+                pred = max(-32768, min(32767, base + int(diff[idx, code])))
                 idx = int(nxt[idx, code])
                 out[c, b * block + k] = pred
             p += nbytes
@@ -212,9 +224,10 @@ def main():
     ap.add_argument("--bits", type=int, default=4, choices=(2, 3, 4))
     ap.add_argument("--beam", type=int, default=16, help="0 = original greedy encoder")
     ap.add_argument("--cost", default="vidc", choices=("lin", "vidc"))
+    ap.add_argument("--modes", action="store_true", help="per-block predictor modes (experimental)")
     a = ap.parse_args()
     pcm, rate = read_wav16(a.wav)
-    data = encode(pcm, rate, a.block, a.bits, a.beam, a.cost)
+    data = encode(pcm, rate, a.block, a.bits, a.beam, a.cost, a.modes)
     with open(a.out, "wb") as f:
         f.write(data)
     print(f"{a.out}: {len(data)} bytes, {pcm.shape[0]} ch, {rate} Hz, {a.bits}-bit")

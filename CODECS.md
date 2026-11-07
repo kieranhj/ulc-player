@@ -5,7 +5,7 @@ This report covers three questions:
 - What could a codec designed for ARM2-class decoding look like?
 - What can the VIDC's log format do for us?
 
-Proposals 1 and 2 are implemented and measured. Proposals 3–6 are designs with estimates.
+Proposals 1 and 2 are implemented and measured. Proposals 2b and 3 are prototyped in Python and measured. Proposals 4–6 are designs with estimates.
 
 ## The VIDC sets the ceiling
 
@@ -31,6 +31,9 @@ The figures below are waveform SNR against the 20833 Hz source, after the player
 | **ADPCM 4-bit, trellis encoder** | 4.0 | 83 | **32.5** | **32.8** | 22 c/s, 6% (stereo 12%) |
 | **ADPCM 3-bit, trellis** | 3.0 | 62 | **28.4** | **28.3** | 21.5 c/s, 6% (stereo 11%) |
 | **ADPCM 2-bit, trellis** | 2.0 | 42 | **22.9** | – | 21.3 c/s, 6% (stereo 11%) |
+| ADPCM 4-bit, trellis + predictor modes (2b, prototype) | 4.0 | 83 | 33.9 | 34.1 | estimated 23–24 c/s |
+| ADPCM 3-bit, trellis + predictor modes (2b, prototype) | 3.0 | 62 | 30.6 | 30.8 | estimated 23–24 c/s |
+| ADPCM 2-bit, trellis + predictor modes (2b, prototype) | 2.0 | 42 | 25.9 | – | estimated 23–24 c/s |
 | ULC 32k | 1.5 | 32 | 17.4 | – | about 229 c/s, 60% |
 | ULC 64k | 3.1 | 64 | 19.1 | 17.6 (64k stereo, 1.5 bps) | about 229 c/s, 60% |
 | ULC 128k | 6.1 | 128 | 19.5 | 19.1 (128k stereo, 3.1 bps) | 60%; stereo doesn't fit an A3000, 80% of an A3020 |
@@ -58,9 +61,9 @@ That is a perceptual codec doing its job, so waveform SNR understates how it sou
 
 ### 1. Measure, then pick rates (done)
 
-- **Listening grid:** `python player/listen_grid.py` writes 64 clips to `player/build/listen-grid/`, plus `snr.tsv`:
+- **Listening grid:** `python player/listen_grid.py` writes a clip per track and format to `player/build/listen-grid/`, plus `snr.tsv` (84 clips; `subband.py` adds 44 more):
   - all four tracks, mono and stereo;
-  - the source through VIDC, ADPCM 4/3/2-bit (greedy and trellis), and ULC from 32k to 128k;
+  - the source through VIDC, ADPCM 4/3/2-bit (greedy, trellis, and trellis with predictor modes), and ULC from 32k to 128k;
   - each rendered as the Archimedes outputs it.
 
   Listening to these decides which rate each codec should be used at.
@@ -87,18 +90,68 @@ That is a perceptual codec doing its job, so waveform SNR understates how it sou
   - **Checks:** the player's ring output is byte-exact against the Python decoder for all six variants, and for old 4-bit files (`player/check_ring.py`).
 - **Result:** 3-bit trellis ADPCM at 62 kbps (28.4 dB) is about 2 dB below the old 4-bit encoder at 83 kbps (30.6 dB), using three-quarters of the bits and the same CPU.
 
-### 3. Subband ADPCM, with no multiplies (proposed)
+### 2b. Per-block predictor modes for ADPCM (prototyped; found while testing proposal 3)
 
-A G.722-style codec; G.722 is the ITU two-band wideband speech codec.
-- **Split:** a LeGall 5/3 lifting wavelet divides the signal into 0–5 kHz and 5–10 kHz at half rate each. Synthesis is about 6 adds and shifts per output pair.
-- **Low band:** 4-bit trellis ADPCM.
-- **High band:** either 2-bit ADPCM, or a per-block envelope plus noise. The noise option is noise substitution, the idea behind SBR, PNS and ULC's own noise-fill. Noise costs about 5 cycles per sample (xorshift plus a table).
-- **Estimates:**
-  - about 2–3 bps (42–62 kbps);
-  - quality close to 4-bit ADPCM where the ear is most sensitive;
-  - about 25–30 cycles per sample, about 8% of an A3000.
-- **Risk:** the 5/3 filter has soft band edges, so a coarse high band leaks aliasing.
-- **Plan:** prototype in Python and score it with the same grid before writing any ARM code.
+IMA predicts each sample as the previous one. Instead, each block now picks one of three predictors:
+- `y1` (IMA);
+- `y1 + (y1 − y2)/2`;
+- `2·y1 − y2`.
+
+The choice goes in the block header's spare byte. Each block starts with `y2 = y1`, so blocks still decode on their own.
+
+**Encoder:** the trellis encoder tries each mode and keeps the cheapest (`adpcm_encode.py --modes`; header `[28]` gains `0x100`).
+
+**Mean SNR, from the listening grid:**
+
+| Bits | Plain trellis | With modes | Gain | Stereo, with modes |
+|---|---:|---:|---:|---:|
+| 4 | 32.5 | 33.9 | +1.4 dB | 34.1 (+1.3) |
+| 3 | 28.4 | 30.6 | +2.2 dB | 30.8 (+2.5) |
+| 2 | 22.9 | 25.9 | +3.0 dB | – |
+
+- **Effect:** 3 bits with modes come within 2 dB of plain 4-bit, and 2 bits with modes beat the subband codec's 2-bit point.
+- **Mode sets:**
+  - {IMA, linear} alone gets most of the gain.
+  - A fourth mode (−½ slope) or quarter-step slopes add at most 0.1 dB.
+
+**ARM cost:**
+- **Loops:** one unrolled loop per mode, so the mode is chosen once per block.
+- **Registers:** with the y1/y2 roles alternating between registers, `2·y1 − y2` is one `RSB` with `LSL #1`, and the half-slope mode is two instructions.
+- **Cost:** about +1–2 cycles per sample on top of 22 (+5–9%). Mono needs one more register, which it gets by storing a word per 4 samples instead of `STMIA` of two.
+- **Not built yet:** the player rejects `0x100` files with a format error rather than misdecoding them.
+
+### 3. Subband ADPCM, with no multiplies (prototyped: not worth building)
+
+This is a G.722-style codec; G.722 is the ITU two-band wideband speech codec. The prototype is `player/subband.py`, which writes its clips into the listening grid (the `30-sb…` files) and `subband.tsv`.
+- **Split:** an integer lifting wavelet divides the signal into 0–5 kHz and 5–10 kHz bands, each at half rate. Two filters were tried, LeGall 5/3 and Deslauriers–Dubuc 13/7. Both use only shifts and adds, both are lossless, and 13/7 was 0.2–1.6 dB better.
+- **Low band:** trellis ADPCM.
+- **High band, four options:**
+  - nothing;
+  - 2-bit ADPCM;
+  - adaptive PCM (no prediction, a 6-bit scale per 32 samples, 1 or 2 bits per sample);
+  - noise substitution: a 6-bit envelope per 64 samples driving a 16-bit xorshift.
+
+Mean mono SNR over the four tracks, 13/7 filter:
+
+| Low + high band | Bits/sample | SNR | Full-band ADPCM at the same rate |
+|---|---:|---:|---|
+| 4-bit ADPCM + nothing | 2.0 | 24.4 | 22.9 (2-bit), **25.9 with modes** |
+| 4-bit + noise | 2.1 | 22.8 * | |
+| 4-bit + 1-bit APCM | 2.6 | 26.4 | about 26 (between 2- and 3-bit) |
+| 3-bit + 2-bit APCM | 2.6 | 24.2 | |
+| 4-bit + 2-bit ADPCM | 3.0 | 26.9 | 28.4 (3-bit), **30.6 with modes** |
+| 4-bit + 2-bit APCM | 3.1 | 27.7 | |
+
+\* Noise substitution can't score well on waveform SNR by construction; only listening can judge it.
+
+**Why it loses:**
+- **The low band limits it.** With a perfect high band, 4-bit ADPCM on the low band reaches only 26.7–33.1 dB.
+- **ADPCM's strength is oversampling,** and the split takes that away. Each band at half rate is less predictable from one sample to the next, so 4 bits per low-band sample buy less than 4 bits per full-rate sample.
+- **Fixes to the low band help a little, but not enough:**
+  - 5-bit codes: +1.5 dB;
+  - the predictor modes below: +0.5 dB.
+- **Result:** the only clear win is at exactly 2 bps over plain ADPCM, and per-block predictor modes (2b) beat it there too, more simply.
+- **What remains open:** noise substitution for the high band is the only part that still needs a listening test.
 
 ### 4. "ULC-lite": a cheap-to-decode ULC profile (proposed)
 
@@ -133,9 +186,9 @@ In VIDC bytes, multiplying the amplitude becomes adding to the chord field: addi
 
 ## Next steps
 
-1. **Listen to the grid** and decide: ULC at 32/48k mono or 64/96k stereo, against trellis ADPCM at 4 or 3 bits.
-2. **Prototype proposal 3 in Python** and add it to the grid.
-3. **Proposal 4**, if stereo has to fit an A3000.
+1. **Listen to the grid** and decide: ULC at 32/48k mono or 64/96k stereo, against trellis ADPCM at 4, 3 or 2 bits, with or without predictor modes (`*-modes` clips). Also listen to the subband noise-substitution clips (`*-30-sb137-4+noise`).
+2. **Build proposal 2b in the player** (generated loops per mode, about +1–2 c/s) if the mode clips earn it.
+3. **Proposal 4**, if stereo ULC has to fit an A3000.
 4. **Report the `memmove` fix** to ulc-codec.
 
 ## Sources

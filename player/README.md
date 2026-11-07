@@ -79,7 +79,9 @@ python player/adpcm_encode.py in.wav out.adp [--bits 4|3|2]   # 16-bit WAV at th
   - 2-bit is 42 kbps.
 - **Decode cost:** all three cost the same, about 22 cycles per sample: 6% CPU on an A3000 for mono, 11–12% for stereo, against 60% for mono ULC.
 
-See `../CODECS.md` for quality measurements, and `listen_grid.py` for listening clips.
+- **Predictor modes (experimental):** `--modes` lets each block pick from three cheap predictors, for +1.4 to +3.0 dB. The player doesn't decode these files yet and rejects them with a format error.
+
+See `../CODECS.md` for quality measurements, `listen_grid.py` for listening clips, and `subband.py` for the two-band (proposal 3) prototype.
 
 ## Making .ulc files
 

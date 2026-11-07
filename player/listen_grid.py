@@ -99,6 +99,8 @@ def main():
                 for b in ((4, 3, 2) if chans == "mono" else (4, 3)):
                     y = ae.decode(ae.encode(ex, RATE, 1024, b, 16, "vidc"))[0].astype(float)[:, :n]
                     cands.append((f"0{6 - b}-adpcm{b}-trellis", vidc12(y), f"{b}.0"))
+                    y = ae.decode(ae.encode(ex, RATE, 1024, b, 16, "vidc", True))[0].astype(float)[:, :n]
+                    cands.append((f"0{6 - b}m-adpcm{b}-modes", vidc12(y), f"{b}.0"))
                 for k in ((32, 48, 64, 96, 128) if chans == "mono" else (64, 96, 128)):
                     f = os.path.join(ROOT, "music", f"{t}-{chans}-{k}k.ulc")
                     y = align(src, ulc_decode(f, tmp))[:, s0:s0 + n]
