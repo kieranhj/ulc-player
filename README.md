@@ -27,3 +27,15 @@ Try it in the browser, or download the `!ULCPlayer` Spark archive: [arc-ulcplaye
 - **[vasm](http://sun.hasenbraten.de/vasm/)** (`vasmarm_std`): set `VASM` to its path.
 - **Headless build of Arculator:** the tests drive it through `arculator_mcp`. Set `ARCULATOR_ROOT` to its directory.
 - **Python 3 with numpy.**
+
+## Credits
+
+- **Codec:** [ulc-codec](https://github.com/Aikku93/ulc-codec) by Ruben Nunez (Aikku93). The encoder and decoder tools come from it, and the checks compare against its C decoder.
+- **Decoder:** started as a port of the GBA player's decoder in [ulcplayer-gba](https://github.com/Aikku93/ulcplayer-gba) by Ruben Nunez (Aikku93): `source/libulc/ulc_UpdatePlayer.s`, `Fourier_DCT4_InPlace.s` and `Fourier_FFT_InPlace.s`. That port became `spike/decoder.asm` and `spike/fourier.asm`, then was optimised for the Archimedes (see [PERF.md](PERF.md)).
+- **Sound handling:** follows the approach of QTM (QTMModule), the Archimedes tracker player. No QTM code is included.
+
+## Licence
+
+The code is released into the public domain under the [Unlicense](LICENSE), the same terms as ulc-codec and ulcplayer-gba.
+
+The music in `music/` (and in the `!ULCPlayer` app) is not covered by this licence; its authors keep all rights to it.
