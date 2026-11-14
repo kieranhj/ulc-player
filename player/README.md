@@ -54,8 +54,8 @@ Results on 2026-11-06, before the optimisations, for the 86 s *Archie Particle d
 ## The !ULCPlayer app
 
 `python player/make_app.py` builds `build/app/!ULCPlayer` and packs it to `build/ulcplayer,ddc`. It contains the four
-tracks from `music/` as ULC mono at 128 kbps: 39% CPU on an A3020 (ARM250), 60% on an A3000,
-0 underruns. Since the 2026-11-07 optimisations, stereo 128 kbps also fits an A3020, at 80% CPU.
+tracks from `music/` as ULC stereo at 128 kbps (`--rate`, `--mono` to change). Stereo takes 80% CPU on
+an A3020 (ARM250), with 0 underruns. Mono takes 39% there and 60% on an A3000.
 `!Run` runs `!RunImage <app dir>`. Given a directory, the player shows a menu: keys 1–4 or a click
 play a track, any key or click goes back to the menu, and Q/Escape quits.
 Archimedes Live on a phone moves the pointer to a tap but never shows a click. The browser sends
@@ -64,6 +64,22 @@ a single pointer jump, with stillness before and after, as a tap. A real mouse m
 small steps and doesn't trigger it.
 `python player/test_app.py` Filer_Runs it from the desktop in the emulator, the way Archimedes Live
 does, and screenshots each step. It's published as `arc-ulcplayer-wip,ddc` on bitshifters.github.io/content/wip.
+
+The menu is generated: `run_player.build(menu)` writes `build/menu.inc` (the track table, format lines
+and help line) and `build/menu_cfg.inc` (the entry count, 4 or 5, and the rows).
+
+## The !ADPCMTest app
+
+`python player/make_app.py --adpcm-test` builds `build/app/!ADPCMTest` and `build/adpcmtest,ddc`.
+It plays the Particle tune in stereo ADPCM in five versions, to compare by ear:
+- 4-bit with and without predictor modes;
+- 3-bit with modes;
+- 2-bit with and without modes.
+
+The menu and `!Help` show each version's kbps and file size. It needs 4 MB, because each tune is
+loaded whole (the 4-bit one is 1.8 MB). Test it with
+`python player/test_app.py --app ADPCMTest --track 1`. It's published as
+`arc-ulcplayer-adpcmtest-wip,ddc`, and the browser link is in the top-level README.
 
 ## Making .adp files
 
@@ -78,7 +94,6 @@ python player/adpcm_encode.py in.wav out.adp [--bits 4|3|2]   # 16-bit WAV at th
   - 3-bit is 62 kbps.
   - 2-bit is 42 kbps.
 - **Decode cost:** all three cost the same, about 22 cycles per sample: 6% CPU on an A3000 for mono, 11–12% for stereo, against 60% for mono ULC.
-
 - **Predictor modes:** `--modes` lets each block pick from three cheap predictors, for +1.4 to +3.0 dB. Decoding costs about 23–24 cycles per sample instead of 22.
 
 See `../CODECS.md` for quality measurements, `listen_grid.py` for listening clips, and `subband.py` for the two-band (proposal 3) prototype.
