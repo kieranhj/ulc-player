@@ -23,8 +23,45 @@ from ulc_tools import (vidc_lin8_to_log, vidc_lin_to_log, lin11_to_lin8,  # noqa
 from arculator_mcp import png as arcpng                 # noqa: E402
 
 
-def build():
+# The !App's menu: 4 or 5 entries of (leaf in <app>.Tracks, title while
+# playing, menu line), plus two lines describing the format.
+DEFAULT_MENU = {
+    "tracks": [("DemoB", "ArchieShaderToy demo B", "1   ArchieShaderToy demo B   0:33"),
+               ("DemoC", "ArchieShaderToy demo C", "2   ArchieShaderToy demo C   0:51"),
+               ("DemoD", "ArchieShaderToy demo D", "3   ArchieShaderToy demo D   0:39"),
+               ("Particle", "Archie Particle demo", "4   Archie Particle demo     1:26")],
+    "fmt": "ulc-codec (MDCT), 128 kbps stereo",
+    "fmt2": "20.8 kHz, decoded live on the ARM",
+}
+
+
+# Menu rows (MODE 9, 32 text rows; an entry is a band of 4 rows) for 4 or 5
+# entries: first entry, Quit (its band is rows -2..+2), "Loading...", help.
+MENU_LAYOUT = {4: dict(MENU_ROW0=7, MENU_QUIT=25, MSG_ROW=22, HELP_ROW=28),
+               5: dict(MENU_ROW0=7, MENU_QUIT=27, MSG_ROW=25, HELP_ROW=30)}
+
+
+def write_menu(menu):
+    n = len(menu["tracks"])
+    q = lambda t: '"' + t.replace('"', "") + '"'
+    cfg = [f".equ MENU_N, {n}"] + [f".equ {k}, {v}" for k, v in MENU_LAYOUT[n].items()]
+    with open(os.path.join(BUILD, "menu_cfg.inc"), "w") as f:
+        f.write("\n".join(cfg) + "\n")
+    out = ["track_table:\t; leaf name, display name, menu line"]
+    out += [f"\t.long\tt{i}_leaf, t{i}_name, t{i}_line" for i in range(n)]
+    for i, (leaf, name, line) in enumerate(menu["tracks"]):
+        assert len(leaf) <= 10 and len(line) <= 38
+        out += [f"t{i}_leaf:\t.asciz\t{q(leaf)}", f"t{i}_name:\t.asciz\t{q(name)}",
+                f"t{i}_line:\t.asciz\t{q(line)}"]
+    out += [f"s_menu_fmt:\t.asciz\t{q(menu['fmt'])}", f"s_menu_fmt2:\t.asciz\t{q(menu['fmt2'])}",
+            f"s_menu_help:\t.asciz\t{q(f'Tap or click a track, or press 1-{n}.')}"]
+    with open(os.path.join(BUILD, "menu.inc"), "w") as f:
+        f.write("\n".join(out) + "\n")
+
+
+def build(menu=None):
     os.makedirs(BUILD, exist_ok=True)
+    write_menu(menu or DEFAULT_MENU)
     for name, data in (("vidc_table.bin", vidc_lin8_to_log()), ("vidc11.bin", vidc_lin_to_log(11)),
                        ("vidc12.bin", vidc_lin_to_log(12)), ("lin11_8.bin", lin11_to_lin8()),
                        ("scope_table.bin", vidc_to_scope())):

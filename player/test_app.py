@@ -4,7 +4,7 @@ Boots to the desktop, Filer_Runs !ULCPlayer, screenshots the menu, plays a
 track by key, records audio, stops with a mouse click, plays another, stops
 with a key, then quits with Q and screenshots the desktop.
 
-    python player/test_app.py [--config a3020-riscos311] [--track 4] [--seconds 10]
+    python player/test_app.py [--config a3020-riscos311] [--track 4] [--seconds 10] [--app ULCPlayer]
 """
 import argparse
 import os
@@ -35,9 +35,10 @@ def main():
     ap.add_argument("--config", default="a3020-riscos311")
     ap.add_argument("--track", default="4")
     ap.add_argument("--seconds", type=float, default=10.0)
+    ap.add_argument("--app", default="ULCPlayer", help="app name in build/app (ADPCMTest: make_app --adpcm-test)")
     a = ap.parse_args()
     os.makedirs(OUT, exist_ok=True)
-    app = os.path.join(HERE, "build", "app", "!ULCPlayer")
+    app = os.path.join(HERE, "build", "app", "!" + a.app)
     with open(os.path.join(app, "!RunImage,ff8"), "rb") as f:
         info = struct.unpack_from("<6I", f.read(), 4)
 
@@ -45,11 +46,11 @@ def main():
                           rb.ARC_ROOT, os.path.join(HERE, "build", "sandbox"))
     try:
         mid, m = pool.create(config=a.config)
-        shutil.copytree(app, os.path.join(m.hostfs, "!ULCPlayer"), dirs_exist_ok=True)
+        shutil.copytree(app, os.path.join(m.hostfs, "!" + a.app), dirs_exist_ok=True)
         run(m, 12)
         rb.tap(m, rb.keymap.SCANCODES["f12"])
         m.command_json("run_us 500000")
-        rb.type_text(m, "Filer_Run HostFS::HostFS.$.!ULCPlayer")
+        rb.type_text(m, "Filer_Run HostFS::HostFS.$.!" + a.app)
         rb.tap(m, rb.keymap.SCANCODES["return"])
         m.command_json("run_us 300000")
         rb.tap(m, rb.keymap.SCANCODES["return"])        # back to the desktop; Filer runs it

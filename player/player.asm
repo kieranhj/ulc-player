@@ -113,14 +113,14 @@ copy_name:
 	b	quit
 
 ; ----------------------------------------------------------------------------
-; Menu: pick a track from <dir>.Tracks with keys 1-4 or the mouse.
+; Menu: pick a track from <dir>.Tracks with keys 1-N or the mouse.
 
 ; Each item is a band of text rows so it's an easy target for a finger.
-.equ MENU_ROW0,  7                         ; first entry's text row
-.equ MENU_N,     4                         ; entries in track_table
+; menu_cfg.inc (run_player.write_menu) sets MENU_N (4 or 5) and the rows:
+; MENU_ROW0 (first entry), MENU_QUIT (Quit, a band of rows -2..+2), MSG_ROW
+; and HELP_ROW.
+	.include "build/menu_cfg.inc"
 .equ MENU_SHIFT, 2                         ; 1 << MENU_SHIFT text rows per entry
-.equ MENU_QUIT,  25                        ; Quit: rows 23..27
-.equ MSG_ROW,    22
 .equ TAP_QUIET,  15                        ; cs of stillness either side of a tap
 .equ TAP_MIN,    16                        ; OS units a tap must jump
 
@@ -217,11 +217,11 @@ dm_loop:
 	adr	r2, s_menu_quit
 	bl	print_at
 	mov	r0, #1
-	mov	r1, #28
+	mov	r1, #HELP_ROW
 	adr	r2, s_menu_help
 	bl	print_at
 	mov	r0, #1
-	mov	r1, #29
+	mov	r1, #HELP_ROW+1
 	adr	r2, s_menu_help2
 	bl	print_at
 	bl	set_mouse_box
@@ -1054,29 +1054,10 @@ mouse_box:	.byte	1, 0, 0, 0, 0, 0xFF, 0x04, 0xFF, 0x03   ; 0,0 - 1279,1023
 path_ptr:	.long	0
 title_ptr:	.long	0
 
-track_table:	; leaf name, display name, menu line
-	.long	t1_leaf, t1_name, t1_line
-	.long	t2_leaf, t2_name, t2_line
-	.long	t3_leaf, t3_name, t3_line
-	.long	t4_leaf, t4_name, t4_line
-t1_leaf:	.asciz	"DemoB"
-t2_leaf:	.asciz	"DemoC"
-t3_leaf:	.asciz	"DemoD"
-t4_leaf:	.asciz	"Particle"
-t1_name:	.asciz	"ArchieShaderToy demo B"
-t2_name:	.asciz	"ArchieShaderToy demo C"
-t3_name:	.asciz	"ArchieShaderToy demo D"
-t4_name:	.asciz	"Archie Particle demo"
-t1_line:	.asciz	"1   ArchieShaderToy demo B   0:33"
-t2_line:	.asciz	"2   ArchieShaderToy demo C   0:51"
-t3_line:	.asciz	"3   ArchieShaderToy demo D   0:39"
-t4_line:	.asciz	"4   Archie Particle demo     1:26"
+	.include "build/menu.inc"         ; track_table, s_menu_fmt(2): run_player.write_menu
 s_tracks:	.asciz	".Tracks."
 s_menu_title:	.asciz	"ULC Player  -  Acorn Archimedes"
-s_menu_fmt:	.asciz	"ulc-codec (MDCT), 128 kbps stereo"
-s_menu_fmt2:	.asciz	"20.8 kHz, decoded live on the ARM"
 s_menu_quit:	.asciz	"Q   Quit"
-s_menu_help:	.asciz	"Tap or click a track, or press 1-4."
 s_menu_help2:	.asciz	"Tap or press a key to stop playing."
 s_loading:	.asciz	"Loading...                "
 s_presskey:	.asciz	"Tap or press a key"
