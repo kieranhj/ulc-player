@@ -18,8 +18,8 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BUILD = os.path.join(HERE, "build")
-ARC_ROOT = os.environ.get("ARCULATOR_ROOT", r"C:\Users\khcon\OneDrive\Projects\arculator-sarah")
-VASM = os.environ.get("VASM", r"C:\Users\khcon\OneDrive\Archie\Projects\vasm_1.9\vasmarm_std.exe")
+ARC_ROOT = os.environ.get("ARCULATOR_ROOT", r"D:\archie\third-party\arculator-sarah")
+VASM = os.environ.get("VASM", r"D:\tools\archie\vasm_1.9\vasmarm_std.exe")
 
 sys.path.insert(0, os.path.join(ARC_ROOT, "mcp"))
 from arculator_mcp import keys as keymap            # noqa: E402
