@@ -1,6 +1,6 @@
 # Test music (20833 Hz)
 
-Full-length versions of tracks from `OneDrive/Retro/Trackers/Rhino`, resampled to 20833 Hz (a 48 µs VIDC period).
+Full-length versions of tracks from `OneDrive/Retro/Music/Rhino`, resampled to 20833 Hz (a 48 µs VIDC period).
 ULC files use N=512 and come from the real `ulcencodetool`; `.adp` files are IMA ADPCM from `player/adpcm_encode.py`.
 The 20833 Hz `.wav` sources they were encoded from are not in the repository (too large).
 
