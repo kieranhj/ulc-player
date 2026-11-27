@@ -20,7 +20,7 @@ Real-time audio player for the Acorn Archimedes (ARM2/ARM250/ARM3, RISC OS 3.1x)
 ## Build and run
 - `make`: `py -3 player\make_app.py` -> `player\build\app\!ULCPlayer` and `player\build\ulcplayer,ddc`. Works (2026-11-22).
 - `make adpcm-test`: `!ADPCMTest` -> `player\build\adpcmtest,ddc`. `make help` lists targets.
-- Tools: Python 3 with numpy; vasm at `D:\tools\archie\vasm_1.9\vasmarm_std.exe` (or `VASM`); headless Arculator + its MCP client at `D:\archie\third-party\arculator-sarah` (or `ARCULATOR_ROOT`), needed even to import `run_player`; `zig` for the trellis encoder.
+- Tools: Python 3 with numpy; vasm at `D:\tools\archie\vasm_1.9\vasmarm_std.exe` (or `VASM`); headless Arculator + its MCP client at `D:\archie\mine\arculator` (or `ARCULATOR_ROOT`), needed even to import `run_player`; `zig` for the trellis encoder.
 - Emulator tests are run by hand: `python player\run_player.py --ulc ... --config a3020-riscos311`, `python player\test_app.py`, `python spike\run_bench.py` (these boot arculator-headless).
 - Published WIP: arc-ulcplayer-wip,ddc and arc-ulcplayer-adpcmtest-wip,ddc on bitshifters.github.io/content/wip (links in README).
 
@@ -34,4 +34,4 @@ Real-time audio player for the Acorn Archimedes (ARM2/ARM250/ARM3, RISC OS 3.1x)
 
 ## See also
 - README.md, player\README.md, spike\README.md, CODECS.md, PERF.md, FEASIBILITY.md.
-- D:\archie\third-party\arculator-sarah (the headless emulator used by the tests).
+- D:\archie\mine\arculator (the headless emulator used by the tests).
