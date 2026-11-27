@@ -55,7 +55,7 @@ transform and the 8-bit truncation.
 
 Needs:
 - vasm at `Archie/Projects/vasm_1.9/vasmarm_std.exe`, with `-m2 -opt-adr`. Use `.long` (vasm's `.word` is 16-bit) and `.short`, not `.hword`.
-- The Arculator MCP tree at `Projects/arculator-sarah`. Its Python client is used directly, so the MCP doesn't need to be registered.
+- The Arculator MCP tree at `D:\archie\mine\arculator`. Its Python client is used directly, so the MCP doesn't need to be registered.
 - numpy, for `ulc_tools.py`.
 
 ## Gotchas
